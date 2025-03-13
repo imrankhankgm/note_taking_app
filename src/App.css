@@ -36,3 +36,9 @@
     transform: rotate(360deg);
   }
 }
+
+* {
+  -webkit-user-select: none; /* Disable selection on iOS */
+  user-select: none; /* Disable selection on all devices */
+  -webkit-touch-callout: none; /* Prevent long-press actions */
+}
