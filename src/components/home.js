@@ -27,6 +27,11 @@ export default function Home() {
   // useRef to track the previous tool so we can detect when it changes
   const prevTool = useRef(Tool);
 
+  // Ref to track whether a drawing/erasing gesture is in progress.
+  const isDrawing = useRef(false);
+  // Ref to store the current eraser stroke (only used when Tool is "eraser")
+  const eraserStroke = useRef([]);
+
   // Update saved brush size whenever BrushSize changes
   useEffect(() => {
     if (Tool === "pen") {
@@ -48,35 +53,64 @@ export default function Home() {
     }
   }, [Tool, penBrushSize, eraserBrushSize, setBrushSize]);
 
-  const isDrawing = useRef(false);
-
-  // State for multiple pages; each page holds its own array of lines
+  // Local state for current page index
   const [currentPage, setCurrentPage] = useState(0);
 
+  // Helper function to compute bounding box from a set of points
+  const computeBoundingBox = (points) => {
+    const xs = points.filter((_, i) => i % 2 === 0);
+    const ys = points.filter((_, i) => i % 2 === 1);
+    return {
+      x1: Math.min(...xs),
+      y1: Math.min(...ys),
+      x2: Math.max(...xs),
+      y2: Math.max(...ys),
+    };
+  };
+
+  // Helper to check if two boxes intersect
+  const boxesIntersect = (box1, box2) => {
+    return (
+      box1.x1 < box2.x2 &&
+      box1.x2 > box2.x1 &&
+      box1.y1 < box2.y2 &&
+      box1.y2 > box2.y1
+    );
+  };
+
+  // Handle mouse/touch down event
   const handleMouseDown = useCallback(
     (e) => {
       e.evt.preventDefault();
       isDrawing.current = true;
-      // Clear redo since new drawing invalidates any "redo" actions
-      setRedo([]);
       const pos = e.target.getStage().getPointerPosition();
-      setPages((prevPages) => {
-        const newPages = [...prevPages];
-        newPages[currentPage] = [
-          ...newPages[currentPage],
-          {
-            tool: Tool,
-            points: [pos.x, pos.y],
-            color: BrushColor,
-            size: BrushSize,
-          },
-        ];
-        return newPages;
-      });
+      // Clear redo stack on new action
+      setRedo([]);
+
+      if (Tool === "pen") {
+        // Start a new stroke for pen
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          newPages[currentPage] = [
+            ...newPages[currentPage],
+            {
+              tool: Tool,
+              points: [pos.x, pos.y],
+              color: BrushColor,
+              size: BrushSize,
+            },
+          ];
+          return newPages;
+        });
+      } else if (Tool === "eraser") {
+        // Initialize eraser stroke (we won't add it to pages)
+        eraserStroke.current = [pos.x, pos.y];
+      }
     },
     [Tool, BrushColor, BrushSize, currentPage, setRedo, setPages]
   );
 
+  // Handle mouse/touch move event
   const handleMouseMove = useCallback(
     (e) => {
       e.evt.preventDefault();
@@ -84,30 +118,72 @@ export default function Home() {
       const stage = e.target.getStage();
       const point = stage.getPointerPosition();
 
-      setPages((prevPages) => {
-        const newPages = [...prevPages];
-        const currentLines = newPages[currentPage];
-        const lastLine = currentLines[currentLines.length - 1];
-        lastLine.points = lastLine.points.concat([point.x, point.y]);
-        return newPages;
-      });
+      if (Tool === "pen") {
+        // Append points to the current pen stroke
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          const currentLines = newPages[currentPage];
+          const lastLine = currentLines[currentLines.length - 1];
+          lastLine.points = lastLine.points.concat([point.x, point.y]);
+          return newPages;
+        });
+      } else if (Tool === "eraser") {
+        // Append points to the eraser stroke
+        eraserStroke.current.push(point.x, point.y);
+        // Optionally, you could render the eraser stroke for feedback here
+      }
     },
-    [currentPage, setPages]
+    [Tool, currentPage, setPages]
   );
 
+  // Handle mouse/touch up event
   const handleMouseUp = useCallback(() => {
-    isDrawing.current = false;
-    // Save the completed stroke into the undo stack.
-    // (Each action is an object with the page index and the stroke data.)
-    setUndo((prevUndo) => {
-      const currentLines = pages[currentPage];
-      if (currentLines.length === 0) return prevUndo;
-      const lastLine = currentLines[currentLines.length - 1];
-      // Append the new action and trim to last 10 actions
-      return [...prevUndo, { page: currentPage, line: lastLine }].slice(-10);
-    });
-  }, [pages, currentPage, setUndo]);
+    if (Tool === "pen") {
+      isDrawing.current = false;
+      // Save the completed pen stroke into the undo stack.
+      setUndo((prevUndo) => {
+        const currentLines = pages[currentPage];
+        if (currentLines.length === 0) return prevUndo;
+        const lastLine = currentLines[currentLines.length - 1];
+        // Append the new action and trim to last 10 actions
+        return [...prevUndo, { page: currentPage, line: lastLine }].slice(-10);
+      });
+    } else if (Tool === "eraser") {
+      isDrawing.current = false;
+      // If no eraser stroke was drawn, do nothing.
+      if (eraserStroke.current.length < 2) return;
 
+      // Compute the bounding box of the eraser stroke.
+      const eraserBox = computeBoundingBox(eraserStroke.current);
+
+      // Remove strokes from the current page that intersect with the eraser box.
+      setPages((prevPages) => {
+        const newPages = [...prevPages];
+        const originalStrokes = newPages[currentPage];
+        const strokesToKeep = [];
+        const erasedStrokes = [];
+        originalStrokes.forEach((stroke) => {
+          const strokeBox = computeBoundingBox(stroke.points);
+          if (boxesIntersect(eraserBox, strokeBox)) {
+            erasedStrokes.push(stroke);
+          } else {
+            strokesToKeep.push(stroke);
+          }
+        });
+
+        // Optionally, push the erased strokes into the undo stack so you can restore them.
+        if (erasedStrokes.length > 0) {
+          setUndo((prevUndo) =>
+            [...prevUndo, { page: currentPage, erased: erasedStrokes }].slice(-10)
+          );
+        }
+        newPages[currentPage] = strokesToKeep;
+        return newPages;
+      });
+    }
+  }, [Tool, currentPage, pages, setPages, setUndo]);
+
+  // Add new page handler remains unchanged.
   const addNewPage = () => {
     setPages([...pages, []]);
     setCurrentPage(pages.length); // Switch to the new page
@@ -115,37 +191,62 @@ export default function Home() {
     setRedo([]);
   };
 
+  // Undo/redo functions remain similar (note that undo actions for eraser now contain an "erased" array)
   const handleUndo = () => {
     setUndo((prevUndo) => {
       if (prevUndo.length === 0) return prevUndo;
       const lastAction = prevUndo[prevUndo.length - 1];
       // Only undo if the last action belongs to the current page
       if (lastAction.page !== currentPage) return prevUndo;
-      // Remove the stroke from the current page
-      setPages((prevPages) => {
-        const newPages = [...prevPages];
-        newPages[currentPage] = newPages[currentPage].slice(0, -1);
-        return newPages;
-      });
-      // Push the undone stroke to the redo stack (limit to 10 actions)
+
+      // Depending on whether the action was a pen stroke or an eraser action, undo appropriately.
+      if (lastAction.line) {
+        // Undo for pen stroke: remove the last line
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          newPages[currentPage] = newPages[currentPage].slice(0, -1);
+          return newPages;
+        });
+      } else if (lastAction.erased) {
+        // Undo for eraser action: restore the erased strokes
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          newPages[currentPage] = [...newPages[currentPage], ...lastAction.erased];
+          return newPages;
+        });
+      }
+      // Push the undone action to the redo stack (limit to 10 actions)
       setRedo((prevRedo) => [...prevRedo, lastAction].slice(-10));
       return prevUndo.slice(0, -1);
     });
   };
 
-  // Simplified redo: pop the last action from redo (if it belongs to the current page)
   const handleRedo = () => {
     setRedo((prevRedo) => {
       if (prevRedo.length === 0) return prevRedo;
       const lastAction = prevRedo[prevRedo.length - 1];
       if (lastAction.page !== currentPage) return prevRedo;
       const newRedo = prevRedo.slice(0, -1);
-      // Reapply the undone stroke to the current page
-      setPages((prevPages) => {
-        const newPages = [...prevPages];
-        newPages[currentPage] = [...newPages[currentPage], lastAction.line];
-        return newPages;
-      });
+      // Reapply the undone action.
+      if (lastAction.line) {
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          newPages[currentPage] = [...newPages[currentPage], lastAction.line];
+          return newPages;
+        });
+      } else if (lastAction.erased) {
+        setPages((prevPages) => {
+          const newPages = [...prevPages];
+          // Remove strokes matching those in lastAction.erased.
+          newPages[currentPage] = newPages[currentPage].filter(
+            (stroke) =>
+              !lastAction.erased.some(
+                (erasedStroke) => erasedStroke === stroke
+              )
+          );
+          return newPages;
+        });
+      }
       // Push the action back to the undo stack (limit to 10 actions)
       setUndo((prevUndo) => [...prevUndo, lastAction].slice(-10));
       return newRedo;
@@ -234,7 +335,8 @@ export default function Home() {
                   lineCap="round"
                   lineJoin="round"
                   globalCompositeOperation={
-                    line.tool === "eraser" ? "destination-out" : "source-over"
+                    // For pen strokes, use normal composite; eraser actions are now handled by removing objects.
+                    "source-over"
                   }
                 />
               ))}
