@@ -1,20 +1,16 @@
-import logo from './logo.svg';
 import './App.css';
-import Home from './components/home'
-import ResponsiveAppBar from './components/AppBar'
-import {ComponentsAccessProvider } from './components/ComponentsAccess';
-
+import Home from './components/home';
+import ResponsiveAppBar from './components/appBar';
+import { ComponentsAccessProvider } from './components/ComponentsAccess';
 
 function App() {
   return (
-
-    <ComponentsAccessProvider >
+    <ComponentsAccessProvider>
       <div>
-      <ResponsiveAppBar/>
-      <Home/>
+        <ResponsiveAppBar />
+        <Home />
       </div>
     </ComponentsAccessProvider>
-
   );
 }
 
