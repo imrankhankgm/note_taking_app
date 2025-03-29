@@ -79,18 +79,32 @@ export const useDrawing = (Tool, BrushColor, BrushSize, setBrushSize, pages, set
       const point = stage.getPointerPosition();
 
       if (Tool === "pen") {
-        // Append points to the current pen stroke
+        // Append points to the current pen stroke with more frequent sampling
         setPages((prevPages) => {
           const newPages = [...prevPages];
           const currentLines = newPages[currentPage];
           const lastLine = currentLines[currentLines.length - 1];
-          lastLine.points = lastLine.points.concat([point.x, point.y]);
+          
+          // Get the last point
+          const lastPoint = lastLine.points.slice(-2);
+          const lastX = lastPoint[0];
+          const lastY = lastPoint[1];
+          
+          // Calculate distance from last point
+          const dx = point.x - lastX;
+          const dy = point.y - lastY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          // If distance is significant enough, add the point
+          if (distance > 1) {
+            lastLine.points = lastLine.points.concat([point.x, point.y]);
+          }
+          
           return newPages;
         });
       } else if (Tool === "eraser") {
         // Append points to the eraser stroke
         eraserStroke.current.push(point.x, point.y);
-        // Optionally, you could render the eraser stroke for feedback here
       }
     },
     [Tool, currentPage, setPages]

@@ -60,9 +60,18 @@ const DrawingCanvas = ({
                 strokeWidth={line.size}
                 tension={0.5}
                 lineCap="round"
+                lineJoin="round"
+                shadowColor="black"
+                shadowBlur={0}
+                shadowOpacity={0}
+                shadowOffsetX={0}
+                shadowOffsetY={0}
                 globalCompositeOperation={
-                  line.tool === "eraser" ? "destination-out" : "source-over"
+                  "source-over"
                 }
+                listening={false}
+                perfectDrawEnabled={true}
+                bezier={true}
               />
             ))}
           </Layer>
