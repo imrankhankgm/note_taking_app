@@ -38,6 +38,16 @@ npm install
 # Start the development server
 npm start
 ```
+## Docker
+
+```bash
+# Building the image
+docker build -t notes-app .
+
+# Running the Container
+docker run -d --restart unless-stopped -p 3000:3000 --name notes-app notes-app
+
+```
 
 The application will be available at `http://localhost:3000`.
 
